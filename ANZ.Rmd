@@ -1,0 +1,231 @@
+---
+title: "ANZ"
+author: "Jiayi Lu"
+date: "5/14/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+library(tidyverse)
+library(readxl)
+library(rpart)
+```
+
+## 1.1 Data Exploration 
+```{r cars}
+setwd("/Users/lujiayi/Downloads")
+ANZ<-read_excel("ANZ.xlsx")
+head(ANZ)
+```
+
+
+```{r cars}
+summary(ANZ)
+```
+```{r}
+#Change the format of the date column 
+ANZ$date = as.Date(ANZ$date, format = "%d/%m/%Y")
+ANZ%>%select(date)%>%unique()%>%nrow()
+```
+
+There are only 91 days included in the dataset, one day is missing. 
+
+```{r}
+date_range = seq(min(ANZ$date), max(ANZ$date), by = 1)
+date_range[!date_range %in% ANZ$date]
+```
+
+As the result, data on 2018-08-16 is missing. 
+
+```{r}
+# Confirm the amount of unique customer_id
+ANZ %>% select(customer_id) %>% unique() %>% nrow()
+ANZ %>% select(merchant_id) %>% unique() %>% nrow()
+```
+
+We have included 100 customers and 5726 merchants in our data. 
+
+```{r}
+#sum up the numbers of NULL or empty data for each varaible
+apply(ANZ, 2, function(x) sum(is.na(x) | x == ""))
+```
+
+As we see from the chart, biller code has 11,160 missing data which is the same for merchant code. Other variables like card present flag, merchant id and code, merchant position (states and long_lat), and merchant suburb have 4326 missing data. Missing data in card_present_flag represents the existance of card-not-present, which means that neither cardhodler nor the credit cardis physically present at the time of transaction. This means that 4326 transactions in our dataset may happened remotely over phone, internet, or mail.  
+
+```{r}
+ANZ %>% select(currency) %>% unique()
+```
+
+All the transactions are made in AUD.
+
+```{r}
+ggplot(data = ANZ)+
+  aes(movement)+
+  geom_bar()
+```
+
+Most of the transactions are made in debit card. 
+
+```{r}
+ggplot(data = ANZ)+
+  aes(x=movement,y=amount)+
+  geom_boxplot()
+```
+
+However, consumers use credit card for larger transactions. 
+
+```{r}
+ggplot(data = ANZ)+
+  aes(balance)+
+  geom_density()
+```
+
+Most customers have balance around 1000 AUD. Besides, there is a quite long tail in the graph.  
+
+##1.2 Data Insights
+
+```{r pressure, echo=FALSE}
+ANZ=ANZ%>%
+  group_by(date)%>%
+  mutate(d_amount=sum(amount))
+
+ggplot(data = ANZ)+
+  aes(x=date,y=d_amount)+
+  ggtitle("Daily Transction From 2018.8.1 To 2018.10.31")+
+  ylab("Daily Transaction")+
+  geom_line()
+  
+```
+
+The plot of daily transaction shows a cyclical pattern. I would have some hypothesis for the occurance of this pattern:
+  - Salaries are paid on certain days, so the transactions may surge on some days
+  - People would spend more money on certain days, such as weekends or hilidays
+It would be meaningful to analyze the data in monthly, weekly, and hourly basis.
+
+```{r}
+
+ANZ=ANZ%>%
+  mutate(
+    weekday=weekdays(date)
+  )%>%
+  group_by(weekday)%>%
+  mutate(
+    w_amount=sum(amount)
+  )
+```
+```{r}
+ANZ$weekday=factor(ANZ$weekday, levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+ggplot(data = ANZ)+
+  aes(x=weekday,y=w_amount)+
+  ggtitle("Daily Transction From 2018.8.1 To 2018.10.31")+
+  ylab("Daily Transaction")+
+  geom_point()+
+  geom_line(aes(group=1))
+```
+
+On the contrary, we found that people actually spend less on weekends and more in weekdays. The reason for this pattern may be that in weekdays, people needs to pay for transportation like subways or taxi and lunch. Besides, after a day's work, when they walk by some stores on their way home, they may probably buy themselves something as a treat. However, on weekends, people may prefer staying at home to have some rest and  making meals for themselves.
+
+
+```{r}
+ANZ=ANZ%>%
+  group_by(customer_id,month(date))%>%
+  mutate(
+    m_amount=sum(amount)
+  )
+```
+```{r}
+ggplot(data = ANZ)+
+  aes(m_amount)+
+  ggtitle("Customers' Monthly Transactions From 2018.8.1 To 2018.10.31")+
+  xlab("Amount")+
+  ylab("Numbers of Customers")+
+  geom_histogram()
+```
+The groups above is the distribution of each customer's monthly payment. From the graph, we can see that the distribution a little bit skew to the right with mode around 7000 AUD and mean around 7500 AUD. There are some outliers like the 0 on the left tail and 19000 AUD on the right tail. 
+
+```{r}
+#summary of daily transaction
+summary(ANZ$d_amount)
+
+#summary of weekly transaction
+summary(ANZ$w_amount)
+
+#summary of monthly transaction
+summary(ANZ$m_amount)
+```
+
+
+```{r}
+ANZ%>%group_by(merchant_state)%>%summarise(trans_count=n())
+```
+
+Besides 4326 N/A data, there are 8 states included in the dataset. Most transactions happened in NSW, and the second highest amount of transactions happened in VIC. On the other hand, TAS has the least amount of transaction.
+
+##1.3 Regression models 
+```{r}
+df_temp=ANZ%>%select(customer_id,gender,date,amount,balance)%>%group_by(customer_id)
+```
+```{r}
+#we got all consumers' salary in trans_data and all sales transaction in payment_data
+for (i in seq(nrow(ANZ))){
+    trans_data = ANZ[ANZ$txn_description == "PAY/SALARY",c("customer_id","amount", "date")]%>% group_by(date) 
+    payment_data = ANZ[is.na(ANZ$merchant_id)==FALSE,c("customer_id","amount", "date")]%>%
+      group_by(date) 
+}
+```
+
+```{r}
+trans_data=trans_data%>%
+  group_by(customer_id)%>%
+  mutate(
+    annual_salary=sum(amount)/3*12
+  )
+payment_data=payment_data%>%
+  group_by(customer_id)%>%
+  mutate(
+    total_p=sum(amount)
+  )
+```
+
+```{r}
+s_consumer=trans_data%>%select(annual_salary)%>%unique()
+ggplot(data = s_consumer)+
+  aes(x=annual_salary)+
+  geom_histogram()
+```
+This is the histagram of each consumer's annual salary. We can see that the graph is pretty skew to right and most consumers have an annual salary between 20000 AUD to 80000 AUD. 
+
+```{r}
+sales=payment_data%>%select(total_p)%>%unique()
+ggplot(data = sales)+
+  aes(x=total_p)+
+  geom_histogram()
+```
+
+From two histograms above, we found that the shapes of two graphes were quite similar. We would hypothesis that there is correlation between annual salary and consumption.
+
+```{r}
+df_inc=ANZ%>%select(customer_id,gender,age)%>%unique()
+s_consumer=s_consumer%>%merge(sales)%>%merge(df_inc)
+```
+
+```{r}
+fit1<-lm(annual_salary~total_p,data = s_consumer)
+summary(fit1)
+```
+
+```{r}
+fit2<-lm(annual_salary~age,data = s_consumer)
+summary(fit2)
+```
+```{r}
+fit3<-lm(annual_salary~total_p+age+gender,data = s_consumer)
+summary(fit3)
+```
+
+As we see, we have 3 models. The first regressed annual salary on total consumption of the 3 month, the second regressed on the age of 100 consumers, and the last regressed on total consumption, age, and the gender of consumers. The final model has the largest R-squared value, though it only has 0.0133. The p-values of all variables in the model are big, which means that we don't have enough evidence to show that there is correlation between annual salary and total consumption or age or gender of consumers. Thus, this model may not be a good choice for ANZ to predict the potential market and to segment customers. 
+
